@@ -4,18 +4,27 @@ on:
   push:
     branches: [main]
 
+env:
+  COMPOSE_PROJECT_NAME: metaverse
+  DEPLOY_DIR: /data/claude/metaverse
+
 jobs:
   deploy:
     runs-on: self-hosted
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Pull latest code
+        run: |
+          cd $DEPLOY_DIR
+          git pull origin main
 
       - name: Build and deploy
-        run: docker compose up -d --build
+        run: |
+          cd $DEPLOY_DIR
+          docker compose up -d --build
 
       - name: Run database migrations
         run: |
+          cd $DEPLOY_DIR
           docker compose exec -T server node apps/server/dist/db/migrate-manual.js || true
 
       - name: Verify deployment
