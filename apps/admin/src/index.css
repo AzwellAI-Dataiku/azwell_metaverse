@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .panel-cy {
+    @apply bg-white rounded-cy p-4 shadow-cy;
+  }
+}

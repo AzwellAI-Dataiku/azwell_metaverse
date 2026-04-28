@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+    transition-duration: 150ms;
+  }
+
+  :focus-visible {
+    outline: 2px solid #FF8FA3;
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #FFF0F5;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #FF8FA3;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #FF6B35;
+  }
+}
+
+@layer components {
+  .btn-cy {
+    @apply px-6 py-2.5 rounded-full font-medium shadow-cy
+           hover:shadow-cy-hover hover:scale-105 active:scale-95
+           transition-all duration-200;
+  }
+
+  .btn-cy-primary {
+    @apply btn-cy bg-cy-coral text-white;
+  }
+
+  .btn-cy-secondary {
+    @apply btn-cy bg-cy-blue text-white;
+  }
+
+  .input-cy {
+    @apply w-full px-4 py-3 rounded-cy border-2 border-cy-coral/30
+           bg-white/80 text-cy-brown placeholder:text-cy-warm-gray/60
+           focus:border-cy-coral focus:bg-white;
+  }
+
+  .panel-cy {
+    @apply bg-white/90 backdrop-blur-sm rounded-cy-lg shadow-cy
+           border-2 border-dashed border-cy-coral/20 p-4;
+  }
+}
+
+@keyframes tab-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.tab-unread {
+  animation: tab-pulse 1.5s ease-in-out infinite;
+}
