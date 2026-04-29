@@ -66,13 +66,13 @@ export async function getPlayerState(userId: number): Promise<PlayerState | null
 
 async function getFloorPlayers(io: Server, floor: number, excludeUserId: number): Promise<PlayerState[]> {
   const sockets = await io.in(`floor:${floor}`).fetchSockets();
-  const players: PlayerState[] = [];
+  const userIds = sockets
+    .map((s) => s.data.userId as number)
+    .filter((id) => id !== excludeUserId);
 
-  for (const s of sockets) {
-    if (s.data.userId === excludeUserId) continue;
-    const state = await getPlayerState(s.data.userId);
-    if (state) players.push(state);
-  }
+  if (userIds.length === 0) return [];
 
-  return players;
+  // 병렬 쿼리로 모든 플레이어 상태를 동시에 조회
+  const results = await Promise.all(userIds.map((id) => getPlayerState(id)));
+  return results.filter((s): s is PlayerState => s !== null);
 }

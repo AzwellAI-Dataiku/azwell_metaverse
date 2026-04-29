@@ -60,6 +60,13 @@ async function migrate() {
   )`;
   console.log('arena_participants table created');
 
+  // 6. 인덱스 추가 (성능 최적화)
+  await sql`CREATE INDEX IF NOT EXISTS idx_messages_floor ON messages (floor)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages (room_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_chat_room_members_room_id ON chat_room_members (room_id)`;
+  console.log('indexes created');
+
   await sql.end();
   console.log('Migration complete!');
 }

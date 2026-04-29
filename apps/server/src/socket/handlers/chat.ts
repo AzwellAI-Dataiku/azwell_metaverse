@@ -1,5 +1,5 @@
 import type { Server, Socket } from 'socket.io';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { messages, users, chatRooms, chatRoomMembers } from '../../db/schema/index.js';
 import { incrementProgress } from '../../services/questService.js';
@@ -60,11 +60,9 @@ export function registerChatHandlers(io: Server, socket: Socket) {
       .from(chatRoomMembers)
       .where(eq(chatRoomMembers.roomId, roomId));
 
-    const sockets = await io.fetchSockets();
-    for (const s of sockets) {
-      if (members.some((m) => m.userId === s.data.userId)) {
-        s.emit('chat:private', chatMsg);
-      }
+    // 룸 기반 전송 — 전체 소켓 스캔 대신 user:{id} 룸으로 직접 전송
+    for (const m of members) {
+      io.to(`user:${m.userId}`).emit('chat:private', chatMsg);
     }
 
     const [room] = await db.select().from(chatRooms).where(eq(chatRooms.id, roomId));
@@ -72,21 +70,28 @@ export function registerChatHandlers(io: Server, socket: Socket) {
       await incrementProgress(userId, 'group_chat', io, socket.id);
     }
 
-    // Busy auto-reply: notify sender if any recipient is currently in busy mode.
-    // DMs/group messages are still delivered and stored — recipients see everything
-    // when they come back. This only signals the sender that the other party may
-    // not respond immediately.
-    const busyRecipients: string[] = [];
+    // Busy auto-reply: 배치 쿼리로 닉네임 일괄 조회
+    const busyMemberIds: number[] = [];
     for (const m of members) {
       if (m.userId === userId) continue;
       const presence = getPresence(m.userId);
       if (presence?.mode === 'busy') {
-        const [u] = await db.select({ nickname: users.nickname }).from(users).where(eq(users.id, m.userId));
-        const suffix = presence.message ? `: "${presence.message}"` : '';
-        busyRecipients.push(`${u?.nickname ?? `#${m.userId}`}${suffix}`);
+        busyMemberIds.push(m.userId);
       }
     }
-    if (busyRecipients.length > 0) {
+    if (busyMemberIds.length > 0) {
+      const busyUsers = await db
+        .select({ id: users.id, nickname: users.nickname })
+        .from(users)
+        .where(inArray(users.id, busyMemberIds));
+
+      const nicknameMap = new Map(busyUsers.map((u) => [u.id, u.nickname]));
+      const busyRecipients = busyMemberIds.map((uid) => {
+        const presence = getPresence(uid);
+        const suffix = presence?.message ? `: "${presence.message}"` : '';
+        return `${nicknameMap.get(uid) ?? `#${uid}`}${suffix}`;
+      });
+
       socket.emit('chat:system', {
         roomId,
         content: `수신자가 방해 금지 모드입니다 — ${busyRecipients.join(', ')}`,
