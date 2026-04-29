@@ -95,6 +95,8 @@ const killCounts = new Map<string, Map<number, number>>(); // matchId → userId
 /** 유저별 총 데미지 추적 */
 const damageDealt = new Map<string, Map<number, number>>();
 const damageTaken = new Map<string, Map<number, number>>();
+/** 사망 순서 추적 (먼저 죽을수록 값이 작음) */
+const deathOrder = new Map<string, Map<number, number>>(); // matchId → userId → order
 
 // ── 대기열 ──
 
@@ -234,6 +236,7 @@ async function createMatch(mode: ArenaMode): Promise<void> {
   killCounts.set(matchId, kills);
   damageDealt.set(matchId, dealt);
   damageTaken.set(matchId, received);
+  deathOrder.set(matchId, new Map());
 
   const match: ArenaMatch = {
     matchId, mode,
@@ -485,6 +488,8 @@ function updateProjectiles(match: ArenaMatch, now: number): void {
         if (killed) {
           target.alive = false;
           kills?.set(proj.ownerId, (kills.get(proj.ownerId) ?? 0) + 1);
+          const order = deathOrder.get(match.matchId);
+          if (order) order.set(target.userId, order.size + 1);
           eventHandler?.onKill(match.matchId, proj.ownerId, target.userId, proj.type === 'bullet' ? 'shoot' : 'rush');
         }
 
@@ -617,6 +622,8 @@ export function handleSkill(userId: number, matchId: string, action: CombatActio
             target.alive = false;
             const kills = killCounts.get(match.matchId);
             if (kills) kills.set(userId, (kills.get(userId) ?? 0) + 1);
+            const order = deathOrder.get(match.matchId);
+            if (order) order.set(target.userId, order.size + 1);
             eventHandler?.onKill(match.matchId, userId, target.userId, 'rush');
           }
 
@@ -717,11 +724,11 @@ function calculateRewards(match: ArenaMatch): MatchReward[] {
   )[0];
 
   if (match.mode === 'ffa') {
-    // 순위: 살아남은 사람 1위, 나머지는 킬수 → 데미지 순
+    // 순위: 살아남은 사람 1위, 나머지는 늦게 죽을수록 높은 순위
     const alive = match.participants.filter((p) => p.alive);
+    const order = deathOrder.get(match.matchId) || new Map();
     const dead = match.participants.filter((p) => !p.alive)
-      .sort((a, b) => (kills.get(b.userId) ?? 0) - (kills.get(a.userId) ?? 0)
-        || (dealt.get(b.userId) ?? 0) - (dealt.get(a.userId) ?? 0));
+      .sort((a, b) => (order.get(b.userId) ?? 0) - (order.get(a.userId) ?? 0));
     const ranked = [...alive, ...dead];
 
     for (let i = 0; i < ranked.length; i++) {
@@ -830,4 +837,5 @@ function cleanupMatchStats(matchId: string): void {
   killCounts.delete(matchId);
   damageDealt.delete(matchId);
   damageTaken.delete(matchId);
+  deathOrder.delete(matchId);
 }

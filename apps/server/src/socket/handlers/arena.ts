@@ -81,8 +81,9 @@ export function registerArenaHandlers(io: Server, socket: Socket) {
     }
   });
 
-  // 접속 끊김 시 아레나 처리
-  socket.on('disconnect', () => {
+  // 접속 끊김 시 아레나 처리 (대기열 + 활성 매치 모두)
+  socket.on('disconnect', async () => {
+    await leaveQueue(userId);
     handleDisconnect(userId);
   });
 }
