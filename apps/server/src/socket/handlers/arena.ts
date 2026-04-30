@@ -11,6 +11,8 @@ import {
   getUserMatch,
   getQueueCount,
   setArenaEventHandler,
+  scheduleQueueLeave,
+  cancelQueueLeave,
 } from '../../services/arenaService.js';
 import { getPlayerState } from './floor.js';
 import type { ArenaMode } from '@metaverse/shared';
@@ -18,6 +20,9 @@ import { MATCH_COUNTDOWN_SECONDS } from '@metaverse/shared';
 
 export function registerArenaHandlers(io: Server, socket: Socket) {
   const userId = socket.data.userId as number;
+
+  // 재접속 시 pending grace timer 취소 (잠깐 끊겼다 돌아온 케이스)
+  cancelQueueLeave(userId);
 
   // 대기열 등록
   socket.on('arena:join', async (data) => {
@@ -83,7 +88,11 @@ export function registerArenaHandlers(io: Server, socket: Socket) {
 
   // 접속 끊김 시 아레나 처리 (대기열 + 활성 매치 모두)
   socket.on('disconnect', async () => {
-    await leaveQueue(userId);
+    // 같은 유저의 다른 소켓이 살아있으면 큐 grace timer를 시작하지 않음 (멀티탭 보호)
+    const remaining = await io.in(`user:${userId}`).fetchSockets();
+    if (remaining.length === 0) {
+      scheduleQueueLeave(userId);
+    }
     handleDisconnect(userId);
   });
 }

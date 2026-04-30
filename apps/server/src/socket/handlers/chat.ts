@@ -100,16 +100,15 @@ export function registerChatHandlers(io: Server, socket: Socket) {
   });
 
   socket.on('chat:typing', (data) => {
-    const { isPublic, roomId } = data;
-    if (isPublic) {
-      const floor = socket.data.floor as number;
-      socket.to(`floor:${floor}`).emit('chat:typing', { userId, isTyping: true });
-    }
+    if (!data.isPublic) return;
+    const floor = socket.data.floor as number | undefined;
+    if (floor === undefined) return;
+    socket.to(`floor:${floor}`).emit('chat:typing', { userId, isTyping: true });
   });
 
   socket.on('chat:stop-typing', () => {
-    const floor = socket.data.floor as number;
-    if (floor) {
+    const floor = socket.data.floor as number | undefined;
+    if (floor !== undefined) {
       socket.to(`floor:${floor}`).emit('chat:typing', { userId, isTyping: false });
     }
   });

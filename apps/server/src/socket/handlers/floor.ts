@@ -1,16 +1,17 @@
 import type { Server, Socket } from 'socket.io';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { characters, users } from '../../db/schema/index.js';
 import type { PlayerState } from '@metaverse/shared';
 import { incrementProgress } from '../../services/questService.js';
+import { getCachedPosition } from './movement.js';
 
 export function registerFloorHandlers(io: Server, socket: Socket) {
   const userId = socket.data.userId as number;
 
   socket.on('floor:join', async (floor: number) => {
     const oldFloor = socket.data.floor as number | undefined;
-    if (oldFloor) {
+    if (oldFloor !== undefined) {
       socket.leave(`floor:${oldFloor}`);
       socket.to(`floor:${oldFloor}`).emit('player:left', userId);
     }
@@ -33,7 +34,7 @@ export function registerFloorHandlers(io: Server, socket: Socket) {
 
   socket.on('floor:leave', () => {
     const floor = socket.data.floor as number | undefined;
-    if (floor) {
+    if (floor !== undefined) {
       socket.leave(`floor:${floor}`);
       socket.to(`floor:${floor}`).emit('player:left', userId);
       socket.data.floor = undefined;
@@ -50,6 +51,9 @@ export async function getPlayerState(userId: number): Promise<PlayerState | null
 
   if (!row) return null;
 
+  // 인메모리 캐시에 더 최신 좌표가 있으면 우선 사용
+  const cached = getCachedPosition(userId);
+
   return {
     userId,
     nickname: row.users.nickname,
@@ -57,14 +61,14 @@ export async function getPlayerState(userId: number): Promise<PlayerState | null
     gender: row.characters.gender as any,
     appearance: row.characters.appearance as any,
     floor: row.characters.currentFloor,
-    x: row.characters.positionX,
-    y: row.characters.positionY,
+    x: cached?.x ?? row.characters.positionX,
+    y: cached?.y ?? row.characters.positionY,
     isSitting: row.characters.isSitting,
     direction: 'down',
   };
 }
 
-async function getFloorPlayers(io: Server, floor: number, excludeUserId: number): Promise<PlayerState[]> {
+export async function getFloorPlayers(io: Server, floor: number, excludeUserId: number): Promise<PlayerState[]> {
   const sockets = await io.in(`floor:${floor}`).fetchSockets();
   const userIds = sockets
     .map((s) => s.data.userId as number)
@@ -72,7 +76,26 @@ async function getFloorPlayers(io: Server, floor: number, excludeUserId: number)
 
   if (userIds.length === 0) return [];
 
-  // 병렬 쿼리로 모든 플레이어 상태를 동시에 조회
-  const results = await Promise.all(userIds.map((id) => getPlayerState(id)));
-  return results.filter((s): s is PlayerState => s !== null);
+  // 단일 쿼리로 모든 플레이어 상태를 한 번에 조회
+  const rows = await db
+    .select()
+    .from(characters)
+    .innerJoin(users, eq(characters.userId, users.id))
+    .where(inArray(characters.userId, userIds));
+
+  return rows.map((row) => {
+    const cached = getCachedPosition(row.users.id);
+    return {
+      userId: row.users.id,
+      nickname: row.users.nickname,
+      level: row.users.level,
+      gender: row.characters.gender as any,
+      appearance: row.characters.appearance as any,
+      floor: row.characters.currentFloor,
+      x: cached?.x ?? row.characters.positionX,
+      y: cached?.y ?? row.characters.positionY,
+      isSitting: row.characters.isSitting,
+      direction: 'down' as const,
+    };
+  });
 }

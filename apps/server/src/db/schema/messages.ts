@@ -10,7 +10,6 @@ export const messages = pgTable('messages', {
   floor: integer('floor'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
-  floorIdx: index('idx_messages_floor').on(table.floor),
-  roomIdIdx: index('idx_messages_room_id').on(table.roomId),
-  createdAtIdx: index('idx_messages_created_at').on(table.createdAt),
+  floorCreatedIdx: index('idx_messages_floor_created').on(table.floor, table.createdAt),
+  roomCreatedIdx: index('idx_messages_room_created').on(table.roomId, table.createdAt),
 }));

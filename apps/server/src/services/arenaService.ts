@@ -90,6 +90,10 @@ const matchTimers = new Map<string, ReturnType<typeof setInterval>>();
 const reconnectTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const countdownTimers = new Map<ArenaMode, ReturnType<typeof setInterval>>();
 
+/** disconnect 시 큐에서 즉시 제거하지 않고 grace 후 제거하기 위한 타이머 */
+const queueLeaveTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const QUEUE_DISCONNECT_GRACE_MS = 5000;
+
 /** 유저별 킬 수 추적 */
 const killCounts = new Map<string, Map<number, number>>(); // matchId → userId → kills
 /** 유저별 총 데미지 추적 */
@@ -138,6 +142,7 @@ export async function joinQueue(
 }
 
 export async function leaveQueue(userId: number): Promise<void> {
+  cancelQueueLeave(userId);
   for (const [mode, queue] of queues) {
     const idx = queue.findIndex((e) => e.userId === userId);
     if (idx !== -1) {
@@ -146,6 +151,25 @@ export async function leaveQueue(userId: number): Promise<void> {
       eventHandler?.onQueueUpdate(mode, queue.length);
       return;
     }
+  }
+}
+
+/** disconnect 시 grace 후 큐에서 제거 — 짧은 끊김에서 entryFee/대기 손실 방지 */
+export function scheduleQueueLeave(userId: number): void {
+  cancelQueueLeave(userId);
+  const t = setTimeout(() => {
+    queueLeaveTimers.delete(userId);
+    void leaveQueue(userId);
+  }, QUEUE_DISCONNECT_GRACE_MS);
+  queueLeaveTimers.set(userId, t);
+}
+
+/** 재접속/수동 leave 시 grace timer 취소 */
+export function cancelQueueLeave(userId: number): void {
+  const t = queueLeaveTimers.get(userId);
+  if (t) {
+    clearTimeout(t);
+    queueLeaveTimers.delete(userId);
   }
 }
 
@@ -800,6 +824,8 @@ export function handleDisconnect(userId: number): void {
     if (pp && !pp.connected && pp.alive) {
       pp.alive = false;
       pp.hp = 0;
+      const order = deathOrder.get(matchId);
+      if (order) order.set(userId, order.size + 1);
     }
     reconnectTimers.delete(userId);
   }, RECONNECT_TIMEOUT_SECONDS * 1000));

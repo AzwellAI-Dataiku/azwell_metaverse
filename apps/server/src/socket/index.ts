@@ -3,7 +3,7 @@ import { Server } from 'socket.io';
 import { config } from '../config.js';
 import { socketAuthMiddleware } from './middleware/auth.js';
 import { registerMovementHandlers, flushAndRemovePosition } from './handlers/movement.js';
-import { registerFloorHandlers, getPlayerState } from './handlers/floor.js';
+import { registerFloorHandlers, getPlayerState, getFloorPlayers } from './handlers/floor.js';
 import { registerInteractionHandlers } from './handlers/interaction.js';
 import { registerChatHandlers } from './handlers/chat.js';
 import { registerItemBoxHandlers, initItemBoxSystem } from './handlers/itembox.js';
@@ -54,19 +54,13 @@ export function setupSocket(httpServer: HttpServer) {
       const message = typeof data.message === 'string' ? data.message.slice(0, 100) : null;
       const brbUntil = typeof data.brbUntil === 'number' && data.brbUntil > Date.now() ? data.brbUntil : null;
       const info = setPresence(userId, data.mode, message, brbUntil);
-      // 같은 층 유저에게만 프레즌스 변경 전송
-      const floor = socket.data.floor as number | undefined;
-      if (floor) {
-        io.to(`floor:${floor}`).emit('user:presence-changed', { userId, presence: info });
-      }
+      // 동접 규모(<20명) 고려해 전역 broadcast — 친구목록/DM 인디케이터 갱신용
+      io.emit('user:presence-changed', { userId, presence: info });
     });
 
     socket.on('presence:clear', () => {
       clearPresence(userId);
-      const floor = socket.data.floor as number | undefined;
-      if (floor) {
-        io.to(`floor:${floor}`).emit('user:presence-changed', { userId, presence: null });
-      }
+      io.emit('user:presence-changed', { userId, presence: null });
     });
 
     const playerState = await getPlayerState(userId);
@@ -75,25 +69,15 @@ export function setupSocket(httpServer: HttpServer) {
       socket.join(`floor:${playerState.floor}`);
       socket.to(`floor:${playerState.floor}`).emit('player:joined', playerState);
 
-      // 병렬로 같은 층 플레이어 조회
-      const sockets = await io.in(`floor:${playerState.floor}`).fetchSockets();
-      const otherUserIds = sockets
-        .map((s) => s.data.userId as number)
-        .filter((id) => id !== userId);
-
-      if (otherUserIds.length > 0) {
-        const results = await Promise.all(otherUserIds.map((id) => getPlayerState(id)));
-        const players = results.filter((s) => s !== null);
-        socket.emit('floor:players', players);
-      } else {
-        socket.emit('floor:players', []);
-      }
+      // 같은 층 플레이어 단일 쿼리로 조회
+      const players = await getFloorPlayers(io as any, playerState.floor, userId);
+      socket.emit('floor:players', players);
     }
 
     socket.on('disconnect', async () => {
       console.log(`User ${userId} disconnected`);
       const floor = socket.data.floor as number | undefined;
-      if (floor) {
+      if (floor !== undefined) {
         socket.to(`floor:${floor}`).emit('player:left', userId);
       }
 
@@ -104,9 +88,7 @@ export function setupSocket(httpServer: HttpServer) {
       const remaining = await io.in(`user:${userId}`).fetchSockets();
       if (remaining.length === 0) {
         clearPresence(userId);
-        if (floor) {
-          io.to(`floor:${floor}`).emit('user:presence-changed', { userId, presence: null });
-        }
+        io.emit('user:presence-changed', { userId, presence: null });
         io.emit('user:offline', { userId });
       }
     });

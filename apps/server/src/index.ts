@@ -3,6 +3,7 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { config } from './config.js';
 import { setupSocket } from './socket/index.js';
+import { shutdownMovementFlusher } from './socket/handlers/movement.js';
 import authRouter from './routes/auth.js';
 import charactersRouter from './routes/characters.js';
 import chatRouter from './routes/chat.js';
@@ -37,3 +38,17 @@ seedAdmin().catch(console.error);
 httpServer.listen(config.PORT, () => {
   console.log(`Server running on port ${config.PORT}`);
 });
+
+async function gracefulShutdown(signal: string): Promise<void> {
+  console.log(`${signal} received, flushing pending writes...`);
+  try {
+    await shutdownMovementFlusher();
+  } catch (err) {
+    console.error('shutdown flush failed:', err);
+  }
+  httpServer.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+process.on('SIGTERM', () => void gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => void gracefulShutdown('SIGINT'));
